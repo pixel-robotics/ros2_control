@@ -54,6 +54,7 @@
 #include "rclcpp/parameter.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "realtime_tools/thread_priority.hpp"
 
 namespace controller_manager
 {
@@ -86,7 +87,8 @@ public:
   explicit ControllerManager(rclcpp::NodeOptions options);
 
   CONTROLLER_MANAGER_PUBLIC
-  virtual ~ControllerManager() = default;
+  ~ControllerManager();
+  
 
   CONTROLLER_MANAGER_PUBLIC
   void robot_description_callback(const std_msgs::msg::String & msg);
@@ -175,6 +177,9 @@ public:
   CONTROLLER_MANAGER_PUBLIC
   controller_interface::return_type update(
     const rclcpp::Time & time, const rclcpp::Duration & period);
+
+  CONTROLLER_MANAGER_PUBLIC
+  void update_loop();
 
   /// Write values from command interfaces.
   /**
@@ -422,6 +427,8 @@ private:
 
   std::shared_ptr<rclcpp::Executor> executor_;
   std::thread spin_executor_thread;
+  rclcpp::TimerBase::SharedPtr init_timer_;
+  std::thread cm_thread_;
 
   std::shared_ptr<pluginlib::ClassLoader<controller_interface::ControllerInterface>> loader_;
   std::shared_ptr<pluginlib::ClassLoader<controller_interface::ChainableControllerInterface>>
