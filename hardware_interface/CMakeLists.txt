@@ -41,6 +41,7 @@ target_compile_definitions(hardware_interface PRIVATE "HARDWARE_INTERFACE_BUILDI
 
 add_library(mock_components SHARED
   src/mock_components/generic_system.cpp
+  src/lexical_casts.cpp
 )
 target_compile_features(mock_components PUBLIC cxx_std_17)
 target_include_directories(mock_components PUBLIC

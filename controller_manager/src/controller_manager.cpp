@@ -248,6 +248,48 @@ rclcpp::NodeOptions get_cm_node_options()
   return node_options;
 }
 
+ControllerManager::ControllerManager(rclcpp::NodeOptions options)
+: rclcpp::Node("controller_manager", options.allow_undeclared_parameters(true).automatically_declare_parameters_from_overrides(true)),
+  diagnostics_updater_(this),
+  loader_(std::make_shared<pluginlib::ClassLoader<controller_interface::ControllerInterface>>(
+    kControllerInterfaceNamespace, kControllerInterfaceClassName)),
+  chainable_loader_(
+    std::make_shared<pluginlib::ClassLoader<controller_interface::ChainableControllerInterface>>(
+      kControllerInterfaceNamespace, kChainableControllerInterfaceClassName)),
+  resource_manager_(std::make_unique<hardware_interface::ResourceManager>(
+    update_rate_, this->get_node_clock_interface()))
+{
+  if (!get_parameter("update_rate", update_rate_))
+  {
+    RCLCPP_WARN(get_logger(), "'update_rate' parameter not set, using default value.");
+  }
+
+  std::string robot_description = "";
+  // TODO(destogl): remove support at the end of 2023
+  get_parameter("robot_description", robot_description);
+  if (robot_description.empty())
+  {
+    subscribe_to_robot_description_topic();
+  }
+  else
+  {
+    RCLCPP_WARN(
+      get_logger(),
+      "[Deprecated] Passing the robot description parameter directly to the control_manager node "
+      "is deprecated. Use '~/robot_description' topic from 'robot_state_publisher' instead.");
+    init_resource_manager(robot_description);
+    init_services();
+  }
+
+  diagnostics_updater_.setHardwareID("ros2_control");
+  diagnostics_updater_.add(
+    "Controllers Activity", this, &ControllerManager::controller_activity_diagnostic_callback);
+  executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
+  spin_executor_thread = std::thread([this]() {
+    executor_->spin();
+  });
+};
+
 ControllerManager::ControllerManager(
   std::shared_ptr<rclcpp::Executor> executor, const std::string & manager_node_name,
   const std::string & namespace_, const rclcpp::NodeOptions & options)
@@ -340,6 +382,7 @@ void ControllerManager::robot_description_callback(const std_msgs::msg::String &
   // to die if a non valid urdf is passed. However, should maybe be fine tuned.
   try
   {
+    RCLCPP_INFO(get_logger(), "BEFORE INIT RESOURCE MANAGER");
     if (resource_manager_->is_urdf_already_loaded())
     {
       RCLCPP_WARN(
@@ -467,11 +510,13 @@ void ControllerManager::init_resource_manager(const std::string & robot_descript
 
 void ControllerManager::init_services()
 {
+  RCLCPP_INFO(get_logger(), "ON INIT SERVICES");
   // TODO(anyone): Due to issues with the MutliThreadedExecutor, this control loop does not rely on
   // the executor (see issue #260).
   // deterministic_callback_group_ = create_callback_group(
   //   rclcpp::CallbackGroupType::MutuallyExclusive);
   best_effort_callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  
 
   using namespace std::placeholders;
   list_controllers_service_ = create_service<controller_manager_msgs::srv::ListControllers>(
@@ -517,6 +562,7 @@ void ControllerManager::init_services()
       "~/set_hardware_component_state",
       std::bind(&ControllerManager::set_hardware_component_state_srv_cb, this, _1, _2),
       qos_services, best_effort_callback_group_);
+  RCLCPP_INFO(get_logger(), "ON INIT SERVICES EXIT");
 }
 
 controller_interface::ControllerInterfaceBaseSharedPtr ControllerManager::load_controller(
@@ -2581,3 +2627,6 @@ void ControllerManager::controller_activity_diagnostic_callback(
 }
 
 }  // namespace controller_manager
+
+#include "rclcpp_components/register_node_macro.hpp"
+RCLCPP_COMPONENTS_REGISTER_NODE(controller_manager::ControllerManager)

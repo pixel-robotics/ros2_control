@@ -21,6 +21,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <utility>
+#include <thread>
 #include <vector>
 
 #include "controller_interface/chainable_controller_interface.hpp"
@@ -80,6 +81,9 @@ public:
     const std::string & manager_node_name = "controller_manager",
     const std::string & namespace_ = "",
     const rclcpp::NodeOptions & options = get_cm_node_options());
+  
+  CONTROLLER_MANAGER_PUBLIC
+  explicit ControllerManager(rclcpp::NodeOptions options);
 
   CONTROLLER_MANAGER_PUBLIC
   virtual ~ControllerManager() = default;
@@ -417,6 +421,7 @@ private:
   diagnostic_updater::Updater diagnostics_updater_;
 
   std::shared_ptr<rclcpp::Executor> executor_;
+  std::thread spin_executor_thread;
 
   std::shared_ptr<pluginlib::ClassLoader<controller_interface::ControllerInterface>> loader_;
   std::shared_ptr<pluginlib::ClassLoader<controller_interface::ChainableControllerInterface>>
