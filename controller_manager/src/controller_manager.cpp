@@ -295,7 +295,7 @@ ControllerManager::ControllerManager(rclcpp::NodeOptions options)
   });
   init_services();
   init_timer_ = this->create_wall_timer(
-    1s,
+    50ms,
     [this]() -> void {
       init_timer_->cancel();
       update_loop();
