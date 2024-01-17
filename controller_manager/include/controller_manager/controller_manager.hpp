@@ -83,6 +83,12 @@ public:
     const std::string & namespace_ = "",
     const rclcpp::NodeOptions & options = get_cm_node_options());
   
+
+  /**
+   * Contstuctor for launching ControllerManager as a component.
+   * Creates an executor for controllers and spins it.
+   * Also runs the update loop in a thread.
+  */
   CONTROLLER_MANAGER_PUBLIC
   explicit ControllerManager(rclcpp::NodeOptions options);
 
@@ -426,7 +432,7 @@ private:
   diagnostic_updater::Updater diagnostics_updater_;
 
   std::shared_ptr<rclcpp::Executor> executor_;
-  std::thread spin_executor_thread;
+  std::thread spin_executor_thread_;
   rclcpp::TimerBase::SharedPtr init_timer_;
   std::thread cm_thread_;
 
