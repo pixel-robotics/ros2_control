@@ -264,6 +264,10 @@ ControllerManager::ControllerManager(rclcpp::NodeOptions options)
   {
     RCLCPP_WARN(get_logger(), "'update_rate' parameter not set, using default value.");
   }
+  if (!get_parameter("enforce_rt_fifo", enforce_rt_fifo_))
+  {
+    RCLCPP_INFO(get_logger(), "'enforce_rt_fifo' parameter not set, using default value.");
+  }
   auto update_period = std::chrono::duration<double>(1.0 / update_rate_);
 
   std::string robot_description = "";
@@ -517,7 +521,7 @@ void ControllerManager::update_loop(){
   cm_thread_ = std::thread(
     [this]()
     {
-      if (realtime_tools::has_realtime_kernel())
+      if (realtime_tools::has_realtime_kernel() || enforce_rt_fifo_)
       {
         if (!realtime_tools::configure_sched_fifo(50))
         {

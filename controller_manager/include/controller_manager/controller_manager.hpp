@@ -329,6 +329,7 @@ protected:
   // Per controller update rate support
   unsigned int update_loop_counter_ = 0;
   unsigned int update_rate_ = 100;
+  bool enforce_rt_fifo_ = false;
   std::vector<std::vector<std::string>> chained_controllers_configuration_;
 
   std::unique_ptr<hardware_interface::ResourceManager> resource_manager_;
