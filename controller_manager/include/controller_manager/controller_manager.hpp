@@ -21,6 +21,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <utility>
+#include <thread>
 #include <vector>
 
 #include "controller_interface/chainable_controller_interface.hpp"
@@ -53,6 +54,7 @@
 #include "rclcpp/parameter.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "realtime_tools/thread_priority.hpp"
 
 namespace controller_manager
 {
@@ -80,9 +82,19 @@ public:
     const std::string & manager_node_name = "controller_manager",
     const std::string & namespace_ = "",
     const rclcpp::NodeOptions & options = get_cm_node_options());
+  
+
+  /**
+   * Contstuctor for launching ControllerManager as a component.
+   * Creates an executor for controllers and spins it.
+   * Also runs the update loop in a thread.
+  */
+  CONTROLLER_MANAGER_PUBLIC
+  explicit ControllerManager(rclcpp::NodeOptions options);
 
   CONTROLLER_MANAGER_PUBLIC
-  virtual ~ControllerManager() = default;
+  ~ControllerManager();
+  
 
   CONTROLLER_MANAGER_PUBLIC
   void robot_description_callback(const std_msgs::msg::String & msg);
@@ -171,6 +183,9 @@ public:
   CONTROLLER_MANAGER_PUBLIC
   controller_interface::return_type update(
     const rclcpp::Time & time, const rclcpp::Duration & period);
+
+  CONTROLLER_MANAGER_PUBLIC
+  void update_loop();
 
   /// Write values from command interfaces.
   /**
@@ -314,6 +329,7 @@ protected:
   // Per controller update rate support
   unsigned int update_loop_counter_ = 0;
   unsigned int update_rate_ = 100;
+  bool enforce_rt_fifo_ = false;
   std::vector<std::vector<std::string>> chained_controllers_configuration_;
 
   std::unique_ptr<hardware_interface::ResourceManager> resource_manager_;
@@ -417,6 +433,9 @@ private:
   diagnostic_updater::Updater diagnostics_updater_;
 
   std::shared_ptr<rclcpp::Executor> executor_;
+  std::thread spin_executor_thread_;
+  rclcpp::TimerBase::SharedPtr init_timer_;
+  std::thread cm_thread_;
 
   std::shared_ptr<pluginlib::ClassLoader<controller_interface::ControllerInterface>> loader_;
   std::shared_ptr<pluginlib::ClassLoader<controller_interface::ChainableControllerInterface>>

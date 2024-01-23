@@ -15,6 +15,8 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   rclcpp
   realtime_tools
   std_msgs
+  rclcpp_components
+  rclcpp_lifecycle
 )
 
 find_package(ament_cmake REQUIRED)
@@ -43,6 +45,8 @@ add_executable(ros2_control_node src/ros2_control_node.cpp)
 target_link_libraries(ros2_control_node PRIVATE
   controller_manager
 )
+
+rclcpp_components_register_nodes(controller_manager "controller_manager::ControllerManager")
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gmock REQUIRED)
@@ -222,5 +226,6 @@ ament_python_install_package(controller_manager
   SCRIPTS_DESTINATION lib/controller_manager
 )
 ament_export_targets(export_controller_manager HAS_LIBRARY_TARGET)
+ament_export_libraries(controller_manager) 
 ament_export_dependencies(${THIS_PACKAGE_INCLUDE_DEPENDS})
 ament_package()

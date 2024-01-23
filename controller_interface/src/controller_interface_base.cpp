@@ -29,7 +29,9 @@ return_type ControllerInterfaceBase::init(
   const rclcpp::NodeOptions & node_options)
 {
   node_ = std::make_shared<rclcpp_lifecycle::LifecycleNode>(
-    controller_name, namespace_, node_options, false);  // disable LifecycleNode service interfaces
+    controller_name, namespace_, rclcpp::NodeOptions().enable_logger_service(true).arguments({
+    "--ros-args",
+    "--remap", ("__node:=" + controller_name).c_str()}), false);  // disable LifecycleNode service interfaces
 
   try
   {

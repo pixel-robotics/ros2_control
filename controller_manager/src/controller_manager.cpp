@@ -27,6 +27,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 
+using namespace std::chrono_literals;
 namespace  // utility
 {
 static constexpr const char * kControllerInterfaceNamespace = "controller_interface";
@@ -248,6 +249,59 @@ rclcpp::NodeOptions get_cm_node_options()
   return node_options;
 }
 
+ControllerManager::ControllerManager(rclcpp::NodeOptions options)
+: rclcpp::Node("controller_manager", options.allow_undeclared_parameters(true).automatically_declare_parameters_from_overrides(true)),
+  diagnostics_updater_(this),
+  loader_(std::make_shared<pluginlib::ClassLoader<controller_interface::ControllerInterface>>(
+    kControllerInterfaceNamespace, kControllerInterfaceClassName)),
+  chainable_loader_(
+    std::make_shared<pluginlib::ClassLoader<controller_interface::ChainableControllerInterface>>(
+      kControllerInterfaceNamespace, kChainableControllerInterfaceClassName)),
+  resource_manager_(std::make_unique<hardware_interface::ResourceManager>(
+    update_rate_, this->get_node_clock_interface()))
+{
+  if (!get_parameter("update_rate", update_rate_))
+  {
+    RCLCPP_WARN(get_logger(), "'update_rate' parameter not set, using default value.");
+  }
+  if (!get_parameter("enforce_rt_fifo", enforce_rt_fifo_))
+  {
+    RCLCPP_INFO(get_logger(), "'enforce_rt_fifo' parameter not set, using default value.");
+  }
+  auto update_period = std::chrono::duration<double>(1.0 / update_rate_);
+
+  std::string robot_description = "";
+  // TODO(destogl): remove support at the end of 2023
+  get_parameter("robot_description", robot_description);
+  if (robot_description.empty())
+  {
+    subscribe_to_robot_description_topic();
+  }
+  else
+  {
+    RCLCPP_WARN(
+      get_logger(),
+      "[Deprecated] Passing the robot description parameter directly to the control_manager node "
+      "is deprecated. Use '~/robot_description' topic from 'robot_state_publisher' instead.");
+    init_resource_manager(robot_description);
+  }
+
+  diagnostics_updater_.setHardwareID("ros2_control");
+  diagnostics_updater_.add(
+    "Controllers Activity", this, &ControllerManager::controller_activity_diagnostic_callback);
+  executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
+  spin_executor_thread_ = std::thread([this]() {
+    executor_->spin();
+  });
+  init_services();
+  init_timer_ = this->create_wall_timer(
+    50ms,
+    [this]() -> void {
+      init_timer_->cancel();
+      update_loop();
+    });
+};
+
 ControllerManager::ControllerManager(
   std::shared_ptr<rclcpp::Executor> executor, const std::string & manager_node_name,
   const std::string & namespace_, const rclcpp::NodeOptions & options)
@@ -281,12 +335,12 @@ ControllerManager::ControllerManager(
       "[Deprecated] Passing the robot description parameter directly to the control_manager node "
       "is deprecated. Use '~/robot_description' topic from 'robot_state_publisher' instead.");
     init_resource_manager(robot_description);
-    init_services();
   }
 
   diagnostics_updater_.setHardwareID("ros2_control");
   diagnostics_updater_.add(
     "Controllers Activity", this, &ControllerManager::controller_activity_diagnostic_callback);
+  init_services();
 }
 
 ControllerManager::ControllerManager(
@@ -308,15 +362,12 @@ ControllerManager::ControllerManager(
     RCLCPP_WARN(get_logger(), "'update_rate' parameter not set, using default value.");
   }
 
-  if (resource_manager_->is_urdf_already_loaded())
-  {
-    init_services();
-  }
   subscribe_to_robot_description_topic();
 
   diagnostics_updater_.setHardwareID("ros2_control");
   diagnostics_updater_.add(
     "Controllers Activity", this, &ControllerManager::controller_activity_diagnostic_callback);
+  init_services();
 }
 
 void ControllerManager::subscribe_to_robot_description_topic()
@@ -349,7 +400,6 @@ void ControllerManager::robot_description_callback(const std_msgs::msg::String &
       return;
     }
     init_resource_manager(robot_description.data.c_str());
-    init_services();
   }
   catch (std::runtime_error & e)
   {
@@ -463,6 +513,52 @@ void ControllerManager::init_resource_manager(const std::string & robot_descript
       resource_manager_->set_component_state(component, active_state);
     }
   }
+}
+
+
+void ControllerManager::update_loop(){
+
+  cm_thread_ = std::thread(
+    [this]()
+    {
+      if (realtime_tools::has_realtime_kernel() || enforce_rt_fifo_)
+      {
+        if (!realtime_tools::configure_sched_fifo(50))
+        {
+          RCLCPP_WARN(this->get_logger(), "Could not enable FIFO RT scheduling policy");
+        }
+      }
+      else
+      {
+        RCLCPP_INFO(this->get_logger(), "RT kernel is recommended for better performance");
+      }
+
+      // for calculating sleep time
+      auto const period = std::chrono::nanoseconds(1'000'000'000 / this->get_update_rate());
+      auto const cm_now = std::chrono::nanoseconds(this->now().nanoseconds());
+      std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds>
+        next_iteration_time{cm_now};
+
+      // for calculating the measured period of the loop
+      rclcpp::Time previous_time = this->now();
+
+      while (rclcpp::ok())
+      {
+        // calculate measured period
+        auto const current_time = this->now();
+        auto const measured_period = current_time - previous_time;
+        previous_time = current_time;
+
+        // execute update loop
+        this->read(this->now(), measured_period);
+        this->update(this->now(), measured_period);
+        this->write(this->now(), measured_period);
+
+        // wait until we hit the end of the period
+        next_iteration_time += period;
+        std::this_thread::sleep_until(next_iteration_time);
+      }
+    });
 }
 
 void ControllerManager::init_services()
@@ -1331,6 +1427,10 @@ controller_interface::ControllerInterfaceBaseSharedPtr ControllerManager::add_co
   RCLCPP_DEBUG(get_logger(), "Destruct controller finished");
 
   return to.back().c;
+}
+ControllerManager::~ControllerManager()
+{
+  cm_thread_.join();
 }
 
 void ControllerManager::manage_switch()
@@ -2581,3 +2681,6 @@ void ControllerManager::controller_activity_diagnostic_callback(
 }
 
 }  // namespace controller_manager
+
+#include "rclcpp_components/register_node_macro.hpp"
+RCLCPP_COMPONENTS_REGISTER_NODE(controller_manager::ControllerManager)
