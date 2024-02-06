@@ -18,7 +18,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-
+#include <sys/prctl.h>
 #include "hardware_interface/types/lifecycle_state_names.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
 
@@ -89,6 +89,9 @@ const rclcpp_lifecycle::State & ControllerInterfaceBase::configure()
     update_rate_ = get_node()->get_parameter("update_rate").as_int();
     is_async_ = get_node()->get_parameter("is_async").as_bool();
   }
+
+  // Set the process name same as controller name
+  prctl(PR_SET_NAME, get_node()->get_name(), 0, 0, 0);
 
   return get_node()->configure();
 }

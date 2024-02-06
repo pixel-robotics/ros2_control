@@ -14,6 +14,7 @@
 
 #include "controller_manager/controller_manager.hpp"
 
+#include <sys/prctl.h>
 #include <list>
 #include <memory>
 #include <string>
@@ -291,6 +292,15 @@ ControllerManager::ControllerManager(rclcpp::NodeOptions options)
     "Controllers Activity", this, &ControllerManager::controller_activity_diagnostic_callback);
   executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
   spin_executor_thread_ = std::thread([this]() {
+    prctl(PR_SET_NAME, "ctrlmngexecutor", 0, 0, 0);
+    if (realtime_tools::has_realtime_kernel() || enforce_rt_fifo_)
+    {
+      if (!realtime_tools::configure_sched_fifo(50)) {
+        RCLCPP_WARN(this->get_logger(), "Could not enable FIFO RT scheduling policy");
+      } else {
+        RCLCPP_INFO(this->get_logger(), "RT kernel is recommended for better performance");
+      }
+    }
     executor_->spin();
   });
   init_services();
@@ -553,6 +563,15 @@ void ControllerManager::update_loop(){
         this->read(this->now(), measured_period);
         this->update(this->now(), measured_period);
         this->write(this->now(), measured_period);
+
+
+        if (measured_period.nanoseconds() - period.count() > 20'000'000)
+        {
+          RCLCPP_WARN_THROTTLE(this->get_logger(), *(this->get_clock()), 500, 
+            "Controller update loop missed its desired rate. Desired rate: %u Hz, Actial rate: %ld Hz",
+            this->get_update_rate(), 1'000'000'000 / measured_period.nanoseconds()
+          );
+        }
 
         // wait until we hit the end of the period
         next_iteration_time += period;
