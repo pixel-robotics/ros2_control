@@ -18,7 +18,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <sys/prctl.h>
+
 #include "hardware_interface/types/lifecycle_state_names.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
 
