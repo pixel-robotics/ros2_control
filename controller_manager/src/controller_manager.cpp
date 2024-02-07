@@ -14,7 +14,6 @@
 
 #include "controller_manager/controller_manager.hpp"
 
-#include <sys/prctl.h>
 #include <list>
 #include <memory>
 #include <string>
@@ -292,15 +291,6 @@ ControllerManager::ControllerManager(rclcpp::NodeOptions options)
     "Controllers Activity", this, &ControllerManager::controller_activity_diagnostic_callback);
   executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
   spin_executor_thread_ = std::thread([this]() {
-    prctl(PR_SET_NAME, "ctrlmngexecutor", 0, 0, 0);
-    if (realtime_tools::has_realtime_kernel() || enforce_rt_fifo_)
-    {
-      if (!realtime_tools::configure_sched_fifo(50)) {
-        RCLCPP_WARN(this->get_logger(), "Could not enable FIFO RT scheduling policy");
-      } else {
-        RCLCPP_INFO(this->get_logger(), "RT kernel is recommended for better performance");
-      }
-    }
     executor_->spin();
   });
   init_services();
