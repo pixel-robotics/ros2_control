@@ -554,6 +554,15 @@ void ControllerManager::update_loop(){
         this->update(this->now(), measured_period);
         this->write(this->now(), measured_period);
 
+
+        if (measured_period.nanoseconds() - period.count() > 20'000'000)
+        {
+          RCLCPP_WARN_THROTTLE(this->get_logger(), *(this->get_clock()), 500, 
+            "Controller update loop missed its desired rate. Desired rate: %u Hz, Actial rate: %ld Hz",
+            this->get_update_rate(), 1'000'000'000 / measured_period.nanoseconds()
+          );
+        }
+
         // wait until we hit the end of the period
         next_iteration_time += period;
         std::this_thread::sleep_until(next_iteration_time);
