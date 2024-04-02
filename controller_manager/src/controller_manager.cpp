@@ -290,15 +290,20 @@ ControllerManager::ControllerManager(rclcpp::NodeOptions options)
   diagnostics_updater_.add(
     "Controllers Activity", this, &ControllerManager::controller_activity_diagnostic_callback);
   executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
-  spin_executor_thread_ = std::thread([this]() {
-    executor_->spin();
-  });
   init_services();
   init_timer_ = this->create_wall_timer(
-    50ms,
+    200ms,
     [this]() -> void {
       init_timer_->cancel();
-      update_loop();
+      init_timer_ = this->create_wall_timer(
+        200ms,
+        [this]() -> void {
+          init_timer_->cancel();
+          update_loop();
+        });
+      spin_executor_thread_ = std::thread([this]() {
+        executor_->spin();
+      });
     });
 };
 
