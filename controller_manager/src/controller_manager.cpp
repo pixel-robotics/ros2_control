@@ -1980,6 +1980,11 @@ void ControllerManager::activate_controllers(
       resource_manager_->make_controller_reference_interfaces_available(controller_name);
     }
   }
+  // Discard the periodicity samples accumulated during the load/activate churn
+  // (and any boot-time clock step). Without this, those startup outliers inflate
+  // the cumulative std-dev and trip "Controller Manager has bad periodicity" for
+  // minutes after launch. Mirrors the per-controller reset above.
+  periodicity_stats_.Reset();
 }
 
 void ControllerManager::activate_controllers_asap(
