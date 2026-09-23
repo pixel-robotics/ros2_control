@@ -124,19 +124,29 @@ int main(int argc, char ** argv)
 
       // for calculating sleep time
       auto const period = std::chrono::nanoseconds(1'000'000'000 / cm->get_update_rate());
-      auto const cm_now = std::chrono::nanoseconds(cm->now().nanoseconds());
-      std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds>
-        next_iteration_time{cm_now - period};
 
-      // for calculating the measured period of the loop
+      // Loop timing (sleep and measured period) runs on the steady clock. On the
+      // system clock a time-sync step right after boot shows up as one huge period
+      // and then makes the loop run back-to-back to catch up, which latches the
+      // "Controller Manager has bad periodicity" diagnostic for days.
+      std::chrono::steady_clock::time_point next_iteration_time = std::chrono::steady_clock::now();
+      auto previous_steady_time = next_iteration_time - period;
+
+      // for calculating the measured period of the loop in simulation
       rclcpp::Time previous_time = cm->now() - period;
 
       while (rclcpp::ok())
       {
         // calculate measured period
         auto const current_time = cm->now();
-        auto const measured_period = current_time - previous_time;
+        rclcpp::Duration measured_period = current_time - previous_time;
         previous_time = current_time;
+        if (!use_sim_time)
+        {
+          auto const current_steady_time = std::chrono::steady_clock::now();
+          measured_period = rclcpp::Duration(current_steady_time - previous_steady_time);
+          previous_steady_time = current_steady_time;
+        }
 
         // execute update loop
         cm->read(cm->now(), measured_period);
@@ -144,13 +154,25 @@ int main(int argc, char ** argv)
         cm->write(cm->now(), measured_period);
 
         // wait until we hit the end of the period
-        next_iteration_time += period;
         if (use_sim_time)
         {
           cm->get_clock()->sleep_until(current_time + period);
         }
         else
         {
+          next_iteration_time += period;
+          auto const steady_now = std::chrono::steady_clock::now();
+          if (next_iteration_time < steady_now)
+          {
+            // Overrun: skip the missed cycles instead of running them back-to-back.
+            auto const missed_cycles = (steady_now - next_iteration_time) / period + 1;
+            RCLCPP_WARN_THROTTLE(
+              cm->get_logger(), *cm->get_clock(), 1000,
+              "Overrun detected! The controller manager missed its desired rate of %d Hz "
+              "(missed cycles: %ld).",
+              cm->get_update_rate(), static_cast<long>(missed_cycles));
+            next_iteration_time += missed_cycles * period;
+          }
           std::this_thread::sleep_until(next_iteration_time);
         }
       }
